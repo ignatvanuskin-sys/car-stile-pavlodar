@@ -35,8 +35,14 @@ export const CODE_RE = /CS-\d{6}-[A-Z0-9]{3}/;
  */
 export function parseBody(body: unknown): Record<string, unknown> {
   if (typeof body !== "string") return (body as Record<string, unknown>) ?? {};
-  const text = body.replace(/^\uFEFF/, "").trim();
-  if (!text) return {};
+
+  /* Берём текст от первой фигурной скобки. Так снимается и метка порядка
+     байтов, и любой мусор перед JSON. Одной замены \uFEFF мало: если тело
+     пришло как байты, метка декодируется в три отдельных символа (ï»¿), и
+     разбор всё равно падал — это выяснилось на живом запросе к проду. */
+  const start = body.indexOf("{");
+  const text = start > 0 ? body.slice(start) : body;
+  if (!text.trim()) return {};
   return JSON.parse(text) as Record<string, unknown>;
 }
 

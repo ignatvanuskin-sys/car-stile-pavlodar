@@ -10,6 +10,7 @@
     "build:client": "vite build",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
+    "test:leads": "node tools/test-leads.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
