@@ -3358,6 +3358,215 @@ em {
   }
 }
 
+/* --- просмотр фотографий работ -------------------------------------------- */
+
+/* Прозрачная кнопка поверх плитки: делает снимок кликабельным и доступным с
+   клавиатуры, не ломая разметку — блочное содержимое внутри <button> невалидно,
+   поэтому сама плитка остаётся <article>. */
+.work-card-open {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.work-card-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(12, 11, 10, 0.9);
+  backdrop-filter: blur(4px);
+}
+
+.lightbox__box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: min(100%, 760px);
+  max-height: 94dvh;
+  background: var(--ink);
+  overflow: hidden;
+}
+
+.lightbox__box:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.lightbox__img {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  max-height: calc(94dvh - 76px);
+  object-fit: contain;
+  background: #0b0a09;
+}
+
+.lightbox__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--dark-line);
+  color: var(--paper);
+}
+
+.lightbox__meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lightbox__meta strong {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+.lightbox__meta span {
+  color: var(--dark-muted);
+  font-size: 12px;
+}
+
+.lightbox__nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.lightbox__count {
+  color: var(--dark-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lightbox__btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--dark-line);
+  background: transparent;
+  color: var(--paper);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.lightbox__btn:hover,
+.lightbox__btn:focus-visible {
+  background: var(--accent);
+  color: var(--ink);
+}
+
+/* --- частые вопросы -------------------------------------------------------- */
+
+.faq-layout {
+  display: grid;
+  gap: 28px;
+}
+
+.faq-intro h2 {
+  margin: 12px 0 0;
+}
+
+.faq-intro p {
+  margin: 16px 0 20px;
+  max-width: 42ch;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.faq-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.faq-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.faq-q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  list-style: none;
+}
+
+/* Штатный треугольник <summary> убираем во всех движках. */
+.faq-q::-webkit-details-marker {
+  display: none;
+}
+
+.faq-q::marker {
+  content: "";
+}
+
+.faq-q__icon {
+  flex: none;
+  color: var(--accent-ink);
+  transition: transform 0.24s ease;
+}
+
+.faq-item[open] .faq-q__icon {
+  transform: rotate(180deg);
+}
+
+.faq-q:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 4px;
+}
+
+.faq-a {
+  max-width: 62ch;
+  padding: 0 0 20px;
+}
+
+.faq-a p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+@media (min-width: 900px) {
+  .faq-layout {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 56px;
+    align-items: start;
+  }
+
+  .faq-intro {
+    position: sticky;
+    top: 98px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faq-q__icon {
+    transition: none;
+  }
+}
+
 /* ------------------------------------------- согласие и защита от ботов */
 
 /* Приманка: поле уводим за пределы экрана, а не display:none — некоторые боты

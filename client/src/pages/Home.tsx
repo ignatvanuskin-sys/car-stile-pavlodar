@@ -150,6 +150,7 @@ const portfolio = [
     result: "Глянец и отражения",
     mobile: "polish-tall",
     desktop: "polish-portrait",
+    big: "polish-big",
     variant: "lead",
   },
   {
@@ -158,6 +159,7 @@ const portfolio = [
     result: "Салон после уборки",
     mobile: "salon-card",
     desktop: "salon-portrait",
+    big: "salon-big",
     variant: "wide",
   },
   {
@@ -166,6 +168,7 @@ const portfolio = [
     result: "Ковролин открыт для чистки",
     mobile: "sound-tall",
     desktop: "sound-portrait",
+    big: "sound-big",
     variant: "tall",
   },
   {
@@ -174,7 +177,51 @@ const portfolio = [
     result: "Процесс в мастерской",
     mobile: "fara-card",
     desktop: "fara-portrait",
+    big: "fara-big",
     variant: "std",
+  },
+];
+
+/* Частые вопросы.
+   Ответы собраны только из того, что мастерская публикует сама: каталог услуг
+   в карточке 2ГИС и подписи к работам. Сроков и гарантий, которых нет в
+   источниках, здесь нет намеренно. */
+const faq = [
+  {
+    q: "Что входит в химчистку салона?",
+    a: "Поверхности салона, пол и ковролин, потолок, пластик, кожа и текстильные сиденья, багажник и ниша запасного колеса. После чистки салон сушат.",
+  },
+  {
+    q: "Чем отличаются стандартная, лёгкая и финишная полировка?",
+    a: "Числом проходов и абразивностью. Лёгкая снимает налёт и возвращает блеск, стандартная работает с микроцарапинами, финишная убирает следы после основного прохода. Что нужно конкретной машине, скажем после осмотра.",
+  },
+  {
+    q: "Нужно ли разбирать салон?",
+    a: "Не всегда. Химчистка бывает без разбора, с частичным разбором и с полным. Вариант зависит от состояния салона и вашей задачи.",
+  },
+  {
+    q: "Сколько времени занимает химчистка?",
+    a: "От нескольких часов до одного-двух дней. Чем сильнее загрязнение и чем больше разбор, тем дольше.",
+  },
+  {
+    q: "Когда нужен сухой туман?",
+    a: "Когда нужно убрать запах — табака, животных, сырости. Обычно делается вместе с химчисткой салона.",
+  },
+  {
+    q: "Как узнать стоимость?",
+    a: "Цены «от» есть на сайте, но итоговая зависит от состояния машины и объёма работ. Стоимость называем до начала: опишите задачу в заявке или пришлите фото в WhatsApp.",
+  },
+  {
+    q: "Можно ли приехать без записи?",
+    a: "Мастерская принимает по предварительной записи, ежедневно с 8:00 до 20:00. С записью машину берут в работу в согласованное время.",
+  },
+  {
+    q: "Как оплатить?",
+    a: "Картой, наличными или по QR-коду.",
+  },
+  {
+    q: "Что делать, если после работ появятся вопросы?",
+    a: "Свяжитесь с мастерской по телефону — обсудим и решим на месте.",
   },
 ];
 
@@ -612,6 +659,124 @@ const serviceTitleToOption: Record<string, string> = {
 };
 
 /**
+ * Просмотр фотографии работы на весь экран.
+ *
+ * Портфолио — главный аргумент мастерской, поэтому снимок нужно уметь
+ * рассмотреть. Закрывается по Escape, по клику на фон и по кнопке, листается
+ * стрелками, фокус не выпускает наружу и возвращается на ту плитку, откуда
+ * просмотр открыли.
+ *
+ * Эффектов два намеренно: первый отвечает только за открытие и закрытие
+ * (сохранение и возврат фокуса, блокировка прокрутки), второй — за клавиши.
+ * Если смешать их, перелистывание стрелками перезапускало бы первый эффект и
+ * выдёргивало фокус из просмотра.
+ */
+function Lightbox({ index, onClose, onMove }: { index: number; onClose: () => void; onMove: (next: number) => void }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const item = portfolio[index];
+  const total = portfolio.length;
+
+  useEffect(() => {
+    triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const t = window.setTimeout(() => dialogRef.current?.focus({ preventScroll: true }), 40);
+    return () => {
+      window.clearTimeout(t);
+      document.body.style.overflow = prevOverflow;
+      triggerRef.current?.focus({ preventScroll: true });
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        onMove((index + 1) % total);
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        onMove((index - 1 + total) % total);
+        return;
+      }
+      /* Просмотр модальный: Tab не должен уходить на содержимое страницы. */
+      if (e.key !== "Tab") return;
+      const items = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button") ?? []).filter(
+        (el) => el.offsetParent !== null,
+      );
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [index, total, onClose, onMove]);
+
+  return (
+    <div
+      className="lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Фотография работы: ${item.model}`}
+      onClick={onClose}
+    >
+      <div className="lightbox__box" ref={dialogRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <img
+          className="lightbox__img"
+          src={`/img/${item.big}-1200.webp?v=${IMG_V}`}
+          alt={`${item.model} — ${item.service}`}
+          width={1200}
+          height={1600}
+        />
+        <div className="lightbox__bar">
+          <div className="lightbox__meta">
+            <strong>{item.model}</strong>
+            <span>
+              {item.service} · {item.result}
+            </span>
+          </div>
+          <div className="lightbox__nav">
+            <button
+              type="button"
+              className="lightbox__btn"
+              onClick={() => onMove((index - 1 + total) % total)}
+              aria-label="Предыдущее фото"
+            >
+              <ChevronLeft size={18} aria-hidden="true" />
+            </button>
+            <span className="lightbox__count">
+              {index + 1} / {total}
+            </span>
+            <button
+              type="button"
+              className="lightbox__btn"
+              onClick={() => onMove((index + 1) % total)}
+              aria-label="Следующее фото"
+            >
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+            <button type="button" className="lightbox__btn" onClick={onClose} aria-label="Закрыть просмотр">
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Карта 2ГИС под блоком контактов.
  *
  * Виджет 2ГИС ставит на карту саму организацию по её id, а не абстрактную
@@ -1005,6 +1170,18 @@ function BookingSheet({
     }
   };
 
+  /* Enter в поле — привычное действие, но форма собрана из кнопок, а не из
+     <form>, поэтому сама по себе Enter ничего не делала. Приравниваем её к
+     «Продолжить». Исключения: textarea (там Enter переносит строку) и кнопки
+     (там Enter должен нажимать саму кнопку). */
+  const onBodyKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" || sent || sending) return;
+    const target = e.target as HTMLElement;
+    if (target instanceof HTMLTextAreaElement || target instanceof HTMLButtonElement) return;
+    e.preventDefault();
+    goNext();
+  };
+
   const goNext = () => {
     const problems = validate(step);
     if (problems.length) {
@@ -1151,7 +1328,7 @@ function BookingSheet({
               </div>
             </div>
 
-            <div className="modal-body" ref={bodyRef}>
+              <div className="modal-body" ref={bodyRef} onKeyDown={onBodyKeyDown}>
               {step === 0 ? (
                 <>
                   <p className="form-lead">Выберите пакет целиком или соберите свой набор — можно взять несколько услуг сразу.</p>
@@ -1346,6 +1523,7 @@ function BookingSheet({
                         checked={form.consent}
                         onChange={(e) => set("consent", e.target.checked)}
                         data-field="consent"
+                        aria-required="true"
                         aria-invalid={errors.consent ? true : undefined}
                         aria-describedby={errors.consent ? "err-consent" : undefined}
                       />
@@ -1589,6 +1767,10 @@ export default function Home() {
 
   const closeBooking = useCallback(() => setBookingOpen(false), []);
 
+  /* Просмотр фотографий: null — закрыт, иначе индекс открытой плитки. */
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
     onScroll();
@@ -1665,6 +1847,7 @@ export default function Home() {
             ["work", "Работы"],
             ["reviews", "Отзывы"],
             ["process", "Процесс"],
+            ["faq", "Вопросы"],
             ["contacts", "Контакты"],
           ].map(([id, label]) => (
             <a
@@ -1927,6 +2110,15 @@ export default function Home() {
                     <small>{item.service}</small>
                     <strong>{item.result}</strong>
                   </div>
+                  {/* Прозрачная кнопка поверх плитки: клик и Enter открывают
+                      фотографию крупно. Плитка остаётся <article>, потому что
+                      блочное содержимое внутри <button> — невалидная разметка. */}
+                  <button
+                    type="button"
+                    className="work-card-open"
+                    onClick={() => setLightbox(i)}
+                    aria-label={`Открыть фотографию крупно: ${item.model}`}
+                  />
                 </article>
               ))}
             </div>
@@ -2049,6 +2241,40 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="section faq-section" id="faq" aria-labelledby="faq-title">
+          <div className="container">
+            <div className="faq-layout">
+              <div className="faq-intro">
+                <span className="eyebrow">09 / Вопросы</span>
+                <h2 className="h2" id="faq-title">
+                  Частые <em>вопросы.</em>
+                </h2>
+                <p>
+                  Собрали то, о чём спрашивают чаще всего. Если вашего вопроса здесь нет — напишите в WhatsApp, ответим.
+                </p>
+                <a className="button button--outline" href={CONTACT_LINKS.whatsapp} target="_blank" rel="noreferrer">
+                  Спросить в WhatsApp
+                  <ArrowUpRight size={15} aria-hidden="true" />
+                </a>
+              </div>
+
+              <div className="faq-list">
+                {faq.map((item) => (
+                  <details className="faq-item" key={item.q}>
+                    <summary className="faq-q">
+                      <span>{item.q}</span>
+                      <ChevronDown className="faq-q__icon" size={18} aria-hidden="true" />
+                    </summary>
+                    <div className="faq-a">
+                      <p>{item.a}</p>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="final-cta">
           <Picture
             className="final-media"
@@ -2058,7 +2284,7 @@ export default function Home() {
           />
           <div className="final-cta-overlay" />
           <div className="final-content">
-            <span className="eyebrow">09 / Ваш автомобиль. Наш уход.</span>
+            <span className="eyebrow">10 / Ваш автомобиль. Наш уход.</span>
             <h2>
               Пора <em>навести блеск?</em>
             </h2>
@@ -2072,7 +2298,7 @@ export default function Home() {
           <div className="container">
             <div className="contacts-layout">
               <div className="contacts-copy">
-                <span className="eyebrow">10 / Как нас найти</span>
+                <span className="eyebrow">11 / Как нас найти</span>
                 <h2 id="contacts-title">
                   Приезжайте <em>в мастерскую.</em>
                 </h2>
@@ -2201,6 +2427,8 @@ export default function Home() {
         initialService={bookingService}
         initialPack={bookingPack}
       />
+
+      {lightbox !== null ? <Lightbox index={lightbox} onClose={closeLightbox} onMove={setLightbox} /> : null}
     </div>
   );
 }
