@@ -1,0 +1,18 @@
+{
+  "name": "Car Stile",
+  "short_name": "Car Stile",
+  "description": "Полировка, химчистка и шумоизоляция автомобилей в Павлодаре",
+  "lang": "ru",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#11110f",
+  "theme_color": "#11110f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    }
+  ]
+}

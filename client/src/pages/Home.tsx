@@ -739,7 +739,17 @@ function ContactMap() {
 
 const STEPS = ["Услуга", "Автомобиль", "Контакты", "Дата", "Проверка"];
 
-function BookingSheet({ open, onClose, initialService }: { open: boolean; onClose: () => void; initialService?: string }) {
+function BookingSheet({
+  open,
+  onClose,
+  initialService,
+  initialPack,
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialService?: string;
+  initialPack?: string;
+}) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<BookingForm>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -747,6 +757,8 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
   const [sending, setSending] = useState(false);
   const [dragY, setDragY] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copyFallback, setCopyFallback] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
   const dragStart = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -763,11 +775,15 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
     // Pre-select the service the user clicked, so the form never opens empty
     // with the choice they already made somewhere else on the page.
     const preselected = initialService ? serviceTitleToOption[initialService] : undefined;
+    /* Пакет приходит с карточки пакета: без этого форма открывалась пустой и
+       выбор пользователя терялся на входе. */
+    const pack = initialPack && packOptions.some((p) => p.name === initialPack) ? initialPack : "";
     setForm({
       ...emptyForm,
+      pack,
       services: preselected && serviceNames.includes(preselected) ? [preselected] : [],
     });
-  }, [open, initialService]);
+  }, [open, initialService, initialPack]);
 
   /* keep the sheet inside the visible viewport when the keyboard opens */
   useEffect(() => {
@@ -793,11 +809,55 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
     };
   }, [open]);
 
+  /* Возврат фокуса на кнопку-триггер. Отдельный эффект только с зависимостью
+     `open`: если завязаться на onClose (а он приходит из разметки новой
+     ссылкой на каждом рендере), эффект перезапускался бы постоянно и уводил
+     фокус из открытой формы на фон. */
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      wasOpen.current = true;
+      triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    } else if (!open && wasOpen.current) {
+      wasOpen.current = false;
+      triggerRef.current?.focus({ preventScroll: true });
+      triggerRef.current = null;
+    }
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
+
+    const focusables = () =>
+      Array.from(
+        sheetRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((el) => el.offsetParent !== null);
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      /* Диалог модальный, поэтому Tab не должен уходить на содержимое фона. */
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === sheetRef.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener("keydown", onKey);
     const t = window.setTimeout(() => sheetRef.current?.focus({ preventScroll: true }), 60);
     return () => {
@@ -813,7 +873,10 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
     setErrors((prev) => (prev[key as string] ? { ...prev, [key as string]: "" } : prev));
   };
 
-  /* validates the fields of the step the user is leaving */
+  /* Проверяет поля шага, который пользователь покидает. Возвращает список
+     проблемных полей, а не просто «ок / не ок»: вызывающий код должен уметь
+     довести человека до первой ошибки — на телефоне сообщение под сгибом
+     иначе просто не видно, и шаг выглядит сломанным. */
   const validate = (target: number) => {
     const next: Record<string, string> = {};
     if (target === 0 && !form.pack && form.services.length === 0) next.services = "Выберите пакет или хотя бы одну услугу";
@@ -825,13 +888,28 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
       if (!form.name.trim()) next.name = "Как к вам обращаться?";
       const digits = form.phone.replace(/\D/g, "");
       if (digits.length < 10) next.phone = "Введите номер телефона полностью";
+      else if (digits.length > 15) next.phone = "Слишком много цифр — проверьте номер";
     }
     if (target >= 3) {
       if (!form.date) next.date = "Выберите дату";
+      else if (form.date < today) next.date = "Эта дата уже прошла — выберите будущую";
       if (!form.time) next.time = "Выберите время";
     }
     setErrors(next);
-    return Object.keys(next).length === 0;
+    return Object.keys(next);
+  };
+
+  /* Подводим пользователя к первой ошибке: прокрутка и фокус на проблемном
+     поле. Для группы услуг фокус ставим на сам контейнер. */
+  const focusFirstError = (keys: string[]) => {
+    const scope = bodyRef.current;
+    const first = keys[0];
+    if (!first || !scope) return;
+    const el = scope.querySelector<HTMLElement>(`[data-field="${first}"]`);
+    if (!el) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    window.setTimeout(() => el.focus({ preventScroll: true }), reduced ? 0 : 180);
   };
 
   /* Заявка уходит в WhatsApp мастерской. Бэкенда у статического сайта нет,
@@ -855,29 +933,62 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
 
   const waHref = () => `${CONTACT_LINKS.whatsapp}?text=${encodeURIComponent(buildMessage())}`;
 
+  /* Копирование с честной обратной связью. Если буфер обмена недоступен
+     (нет разрешения, небезопасный контекст, отказ браузера) — не показываем
+     нативный prompt, а раскрываем поле с текстом: его видно, можно выделить
+     и скопировать руками. Раньше в этом случае не происходило ничего
+     заметного, и кнопка выглядела нерабочей. */
   const copyRequest = () => {
     const text = buildMessage();
-    const done = () => {
+    /* Текст показываем сразу и не ждём ответа буфера обмена: если браузер
+       держит промис (нет разрешения, нестандартный контекст), пользователь
+       иначе не увидит вообще никакой реакции. Подтверждение копирования
+       приходит вторым шагом и только меняет подпись. */
+    setCopyFallback(text);
+    const flash = () => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2200);
     };
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(() => window.prompt("Скопируйте заявку:", text));
-      return;
+    try {
+      const write = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+      if (write) void write(text).then(flash, () => undefined);
+    } catch {
+      /* остаётся ручное копирование из показанного поля */
     }
-    window.prompt("Скопируйте заявку:", text);
   };
 
   const goNext = () => {
-    if (!validate(step)) return;
+    const problems = validate(step);
+    if (problems.length) {
+      focusFirstError(problems);
+      return;
+    }
     if (step === STEPS.length - 1) {
-      setSending(true);
       const href = waHref();
-      window.setTimeout(() => {
-        setSending(false);
-        setSent(true);
-        window.open(href, "_blank", "noopener,noreferrer");
-      }, 600);
+      setSending(true);
+      setSent(true);
+      /* window.open вызываем прямо в обработчике клика. В отложенном таймере
+         (как было раньше) браузер теряет «жест пользователя» и вправе
+         заблокировать вкладку — тогда экран успеха обещал бы открытый
+         WhatsApp, которого нет. Теперь результат проверяем и говорим правду. */
+      let opened: Window | null = null;
+      try {
+        /* Без «noopener» в аргументах: с ним window.open по спецификации
+           возвращает null даже при успехе, и мы объявили бы блокировку на
+           ровном месте. Вместо этого обнуляем opener вручную. */
+        opened = window.open(href, "_blank");
+        if (opened) {
+          try {
+            opened.opener = null;
+          } catch {
+            /* другая политика безопасности — не критично */
+          }
+        }
+      } catch {
+        opened = null;
+      }
+      setBlocked(opened === null);
+      setSending(false);
       return;
     }
     setStep((s) => Math.min(STEPS.length - 1, s + 1));
@@ -999,7 +1110,7 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                       car owner thinks about it: either the bundle or the parts. */}
                   {form.pack === "" ? (
                     <>
-                      <div className="choice-grid">
+                      <div className="choice-grid" data-field="services" tabIndex={-1} aria-label="Услуги">
                         {serviceOptions.map((item) => {
                           const active = form.services.includes(item.name);
                           return (
@@ -1022,7 +1133,11 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                           );
                         })}
                       </div>
-                      {errors.services ? <span className="field-error">{errors.services}</span> : null}
+                       {errors.services ? (
+                         <span className="field-error" id="err-services" role="alert">
+                           {errors.services}
+                         </span>
+                       ) : null}
                       <Estimate services={form.services} />
                     </>
                   ) : (
@@ -1042,8 +1157,15 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                       placeholder="Toyota"
                       autoComplete="off"
                       enterKeyHint="next"
+                      data-field="make"
+                      aria-invalid={errors.make ? true : undefined}
+                      aria-describedby={errors.make ? "err-make" : undefined}
                     />
-                    {errors.make ? <span className="field-error">{errors.make}</span> : null}
+                    {errors.make ? (
+                      <span className="field-error" id="err-make" role="alert">
+                        {errors.make}
+                      </span>
+                    ) : null}
                   </label>
                   <label className={`field ${errors.model ? "field--invalid" : ""}`}>
                     <span>Модель</span>
@@ -1054,8 +1176,15 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                       placeholder="Camry"
                       autoComplete="off"
                       enterKeyHint="next"
+                      data-field="model"
+                      aria-invalid={errors.model ? true : undefined}
+                      aria-describedby={errors.model ? "err-model" : undefined}
                     />
-                    {errors.model ? <span className="field-error">{errors.model}</span> : null}
+                    {errors.model ? (
+                      <span className="field-error" id="err-model" role="alert">
+                        {errors.model}
+                      </span>
+                    ) : null}
                   </label>
                   <label className="field">
                     <span>Год выпуска</span>
@@ -1083,22 +1212,39 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                         placeholder="Ваше имя"
                         autoComplete="name"
                         enterKeyHint="next"
+                        data-field="name"
+                        aria-invalid={errors.name ? true : undefined}
+                        aria-describedby={errors.name ? "err-name" : undefined}
                       />
-                      {errors.name ? <span className="field-error">{errors.name}</span> : null}
+                      {errors.name ? (
+                        <span className="field-error" id="err-name" role="alert">
+                          {errors.name}
+                        </span>
+                      ) : null}
                     </label>
                     <label className={`field ${errors.phone ? "field--invalid" : ""}`}>
                       <span>Телефон</span>
                       <input
                         value={form.phone}
-                        onChange={(e) => set("phone", e.target.value)}
+                        /* Поле принимало буквы, эмодзи и 20 цифр подряд — номер
+                           всё равно уходил бы в заявку нечитаемым. Оставляем
+                           только то, из чего состоит телефон. */
+                        onChange={(e) => set("phone", e.target.value.replace(/[^\d+()\-\s]/g, "").slice(0, 18))}
                         onFocus={onFieldFocus}
                         placeholder="+7 (___) ___-__-__"
                         type="tel"
                         inputMode="tel"
                         autoComplete="tel"
                         enterKeyHint="done"
+                        data-field="phone"
+                        aria-invalid={errors.phone ? true : undefined}
+                        aria-describedby={errors.phone ? "err-phone" : undefined}
                       />
-                      {errors.phone ? <span className="field-error">{errors.phone}</span> : null}
+                      {errors.phone ? (
+                        <span className="field-error" id="err-phone" role="alert">
+                          {errors.phone}
+                        </span>
+                      ) : null}
                     </label>
                   </div>
                   <div className="contact-row" role="group" aria-label="Способ связи">
@@ -1129,8 +1275,15 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                         onFocus={onFieldFocus}
                         type="date"
                         enterKeyHint="next"
+                        data-field="date"
+                        aria-invalid={errors.date ? true : undefined}
+                        aria-describedby={errors.date ? "err-date" : undefined}
                       />
-                      {errors.date ? <span className="field-error">{errors.date}</span> : null}
+                      {errors.date ? (
+                        <span className="field-error" id="err-date" role="alert">
+                          {errors.date}
+                        </span>
+                      ) : null}
                     </label>
                     <label className={`field ${errors.time ? "field--invalid" : ""}`}>
                       <span>Время</span>
@@ -1141,8 +1294,15 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                         type="time"
                         step={1800}
                         enterKeyHint="done"
+                        data-field="time"
+                        aria-invalid={errors.time ? true : undefined}
+                        aria-describedby={errors.time ? "err-time" : undefined}
                       />
-                      {errors.time ? <span className="field-error">{errors.time}</span> : null}
+                      {errors.time ? (
+                        <span className="field-error" id="err-time" role="alert">
+                          {errors.time}
+                        </span>
+                      ) : null}
                     </label>
                   </div>
                   <label className="field" style={{ marginTop: 14 }}>
@@ -1157,7 +1317,7 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                   </label>
                   <div className="booking-note">
                     <CalendarDays size={16} />
-                    <span>Администратор подтвердит время в течение 15 минут в рабочее часы.</span>
+                    <span>Администратор подтвердит время в течение 15 минут в рабочее время.</span>
                   </div>
                 </>
               ) : null}
@@ -1243,9 +1403,12 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
               <br />
               <em>её отправить.</em>
             </h2>
+            {/* Говорим только то, что реально произошло: если браузер
+                заблокировал вкладку, человек не должен искать несуществующий чат. */}
             <p>
-              Мы открыли WhatsApp с уже заполненной заявкой — нажмите «Отправить» в чате. Если окно не открылось, скопируйте текст или
-              позвоните: {PHONE_DISPLAY}.
+              {blocked
+                ? "Браузер заблокировал новое окно. Нажмите «Открыть WhatsApp» — заявка уже заполнена, останется отправить её в чате."
+                : `Мы открыли WhatsApp с уже заполненной заявкой — нажмите «Отправить» в чате. Если окно не открылось, откройте его кнопкой ниже или позвоните: ${PHONE_DISPLAY}.`}
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
               <a className="button button--accent" href={waHref()} target="_blank" rel="noreferrer">
@@ -1258,6 +1421,25 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
                 Закрыть
               </button>
             </div>
+            <p className="copy-status" role="status" aria-live="polite">
+              {copied ? "Текст заявки скопирован в буфер обмена" : ""}
+            </p>
+            {copyFallback ? (
+              <div className="copy-fallback">
+                <p>
+                  {copied
+                    ? "Текст заявки — уже в буфере обмена, но вот он целиком:"
+                    : "Скопировать автоматически не вышло — выделите текст ниже и скопируйте вручную."}
+                </p>
+                <textarea
+                  readOnly
+                  rows={7}
+                  value={copyFallback}
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Текст заявки"
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -1270,17 +1452,24 @@ function BookingSheet({ open, onClose, initialService }: { open: boolean; onClos
 export default function Home() {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingService, setBookingService] = useState<string>("");
+  const [bookingPack, setBookingPack] = useState<string>("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [openService, setOpenService] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
+  const menuToggleRef = useRef<HTMLButtonElement | null>(null);
 
   useRevealOnScroll();
 
-  const openBooking = useCallback((service = "") => {
+  /* Пакет передаём вторым аргументом: кнопка «Рассчитать стоимость» на карточке
+     пакета раньше открывала пустую форму, и выбранный пакет терялся. */
+  const openBooking = useCallback((service = "", pack = "") => {
     setBookingService(service);
+    setBookingPack(pack);
     setMenuOpen(false);
     setBookingOpen(true);
   }, []);
+
+  const closeBooking = useCallback(() => setBookingOpen(false), []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -1295,8 +1484,29 @@ export default function Home() {
       if (e.key === "Escape") setMenuOpen(false);
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    /* Меню раскрывается поверх страницы, поэтому фон должен стоять на месте:
+       без блокировки прокрутки палец под меню продолжает листать лендинг. */
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      /* Возвращаем фокус на гамбургер — иначе после Escape он падает на body. */
+      menuToggleRef.current?.focus({ preventScroll: true });
+    };
   }, [menuOpen]);
+
+  /* Прямой заход по ссылке с якорем (/#contacts): к моменту, когда браузер
+     пытается прыгнуть сам, одностраничник ещё не отрисован, поэтому
+     прокручиваем вручную после монтирования. */
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     const onResize = () => {
@@ -1313,13 +1523,19 @@ export default function Home() {
 
   return (
     <div className="site-shell">
+      {/* Skip-link обязан быть первым в DOM: иначе первый Tab попадает на логотип
+          в шапке, и до него нужно дойти ещё три нажатия. */}
+      <a className="skip-link" href="#services">
+        Перейти к услугам
+      </a>
+
       <header className={`site-header ${scrolled ? "site-header--scrolled" : ""}`}>
         <a href="#top" className="brand" aria-label="Car Stile — в начало страницы" onClick={(e) => { e.preventDefault(); scrollTo("top"); }}>
           <span>CAR</span>
           <small>STILE</small>
         </a>
 
-        <nav className={menuOpen ? "nav-links nav-links--open" : "nav-links"} aria-label="Основная навигация">
+        <nav id="site-nav" className={menuOpen ? "nav-links nav-links--open" : "nav-links"} aria-label="Основная навигация">
           {[
             ["services", "Услуги"],
             ["work", "Работы"],
@@ -1356,9 +1572,11 @@ export default function Home() {
           <button
             type="button"
             className="menu-toggle"
+            ref={menuToggleRef}
             onClick={() => setMenuOpen((v) => !v)}
             aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"}
             aria-expanded={menuOpen}
+            aria-controls="site-nav"
           >
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -1623,7 +1841,7 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className="button button--outline" onClick={() => openBooking()}>
+                  <button type="button" className="button button--outline" onClick={() => openBooking("", pack.name)}>
                     {pack.cta}
                   </button>
                 </article>
@@ -1851,7 +2069,12 @@ export default function Home() {
         </div>
       </footer>
 
-      <BookingSheet open={bookingOpen} onClose={() => setBookingOpen(false)} initialService={bookingService} />
+      <BookingSheet
+        open={bookingOpen}
+        onClose={closeBooking}
+        initialService={bookingService}
+        initialPack={bookingPack}
+      />
     </div>
   );
 }

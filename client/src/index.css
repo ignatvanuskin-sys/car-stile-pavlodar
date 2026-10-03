@@ -1400,7 +1400,10 @@ em {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: min(94%, 920px);
+  /* Ограничение по dvh, а не по проценту от оверлея: высота оверлея берётся из
+     --vvh и на части устройств/режимов оказывалась больше реального экрана,
+     из-за чего низ формы уезжал за границу вьюпорта. */
+  max-height: min(92dvh, 920px);
   padding-bottom: env(safe-area-inset-bottom);
   border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
   background: var(--paper);
@@ -3331,4 +3334,113 @@ em {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ------------------------------------------------- доступность и состояния */
+
+/* Skip-link: первый Tab на странице уводит сразу к содержимому, а не
+   заставляет пролистывать всю шапку. Видим только при фокусе. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  padding: 12px 18px;
+  background: var(--accent);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  transform: translateY(-130%);
+  transition: transform 0.16s ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* Статус копирования: озвучивается скринридером, но занимает ноль места, пока пуст. */
+.copy-status:empty {
+  display: none;
+}
+
+.copy-status {
+  margin: 10px 0 0;
+  color: var(--accent-ink);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+/* Запасной путь, если буфер обмена недоступен: текст видно и можно выделить руками. */
+.copy-fallback {
+  width: 100%;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.copy-fallback p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.copy-fallback textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* --------------------------------------------------------------- страница 404 */
+
+.notfound {
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  min-height: 100dvh;
+  padding: 48px var(--gutter);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.notfound__code {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.notfound h1 {
+  margin: 0;
+  font-size: clamp(34px, 11vw, 66px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+
+.notfound p {
+  margin: 0;
+  max-width: 42ch;
+  color: var(--dark-muted);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.notfound__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.notfound .button--outline {
+  border-color: rgba(239, 237, 232, 0.28);
+  background: transparent;
+  color: var(--paper);
 }
