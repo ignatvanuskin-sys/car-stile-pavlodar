@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+/* Leaflet нужен только карте в блоке контактов, поэтому саму библиотеку тянем
+   динамическим импортом внутри эффекта — она уезжает в отдельный чанк и не
+   утяжеляет первую загрузку. Здесь остаются только типы и стили: CSS важен
+   сразу, иначе карта мигнёт неоформленной. */
+import type { Map as LeafletMap } from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -254,15 +260,26 @@ const TWOGIS_URL = "https://2gis.kz/pavlodar/firm/70000001094135942";
 /* Точка входа: координаты из геоточки карточки 2ГИС (52.28512, 76.950167). */
 const MAP_POINT = { lat: 52.28512, lon: 76.950167 };
 
-/* Ключ 2ГИС.
-   У 2ГИС нет анонимного встраивания: виджет выдаётся организации в личном
-   кабинете (widgets.2gis.com), поэтому iframe без ключа бесполезен. Пока ключа
-   нет, блок показывает карту Яндекса с той же точкой и рабочую ссылку на
-   карточку в 2ГИС — блок никогда не выглядит сломанным. */
-const TWOGIS_KEY = "";
+/**
+ * Тайлы карты 2ГИС.
+ *
+ * Почему не виджет 2ГИС в iframe: `widgets.2gis.com/widget?type=firmsonmap`
+ * без ключа кабинета отдаёт только «рамку» — зум и копирайт рисуются, а сами
+ * тайлы и метка организации не появляются. То есть посетитель видит пустую
+ * плашку, что хуже обычной карты.
+ *
+ * Тайловый сервис 2ГИС при этом открыт и отдаёт обычные Web-Mercator тайлы
+ * (проверено: z=9 для этих координат возвращает Павлодар, z=13 — улицы Исы
+ * Байзакова и Академика Чокина, парк Афганцев). Поэтому рисуем настоящую карту
+ * 2ГИС через Leaflet: она гарантированно работает без ключа, тянет меньше
+ * кода, чем iframe с чужим рантаймом, и полностью подчиняется нашей стилистике.
+ *
+ * Для продакшена правильнее взять официальный ключ 2ГИС: он даёт SLA и снимает
+ * вопрос условий использования тайлов. Переключение — одна константа.
+ */
+const TWOGIS_TILES = "https://tile{s}.maps.2gis.com/tiles?x={x}&y={y}&z={z}";
+const TWOGIS_TILE_SUBDOMAINS = ["0", "1", "2", "3"];
 
-/** Ссылка «открыть карточку» — только проверенный адрес компании в 2ГИС. */
-const TWOGIS_FALLBACK_URL = TWOGIS_URL;
 const CONTACT_LINKS = {
   phone: PHONE_HREF,
   whatsapp: "https://wa.me/77711000221",
@@ -565,27 +582,23 @@ const serviceTitleToOption: Record<string, string> = {
 };
 
 /**
- * Contact map.
+ * Карта 2ГИС под блоком контактов.
  *
- * Provider is chosen at build time by whether a 2GIS key is present:
+ * Виджет 2ГИС ставит на карту саму организацию по её id, а не абстрактную
+ * точку с координатами, — посетитель сразу видит карточку мастера.
  *
- *  - with a key   -> 2GIS widget iframe (the 2GIS map people actually use);
- *  - without one  -> the Yandex widget, which works anonymously.
- *
- * 2GIS has no anonymous embed: `widget.2gis.ru` renders its banner constructor
- * for an unknown key, so shipping it keyless would show a builder to visitors.
- * A key comes from the 2GIS personal account (widgets.2gis.com). Until one is
- * pasted in, the site stays on Yandex instead of showing something broken.
- *
- * Either way the iframe is third-party and heavy, so it is only inserted once
- * the block is near the viewport. The link underneath is a real anchor, so the
- * address stays reachable if the iframe is blocked or fails.
+ * Iframe сторонний и тяжёлый, поэтому вставляем его только когда блок подходит
+ * к экрану, а высоту карточка резервирует сама (aspect-ratio), чтобы контент
+ * ниже не прыгал. Панель с адресом и кнопками — обычный DOM, а не часть
+ * виджета, поэтому адрес и телефон остаются доступными, даже если iframe
+ * заблокирован.
  */
 function ContactMap() {
   const holder = useRef<HTMLDivElement | null>(null);
+  const canvas = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
   const [visible, setVisible] = useState(false);
-
-  const use2GIS = TWOGIS_KEY.trim().length > 0;
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const el = holder.current;
@@ -607,38 +620,119 @@ function ContactMap() {
     return () => io.disconnect();
   }, [visible]);
 
-  const point = `${MAP_POINT.lon}%2C${MAP_POINT.lat}`;
-  const src = use2GIS
-    ? `https://widget.2gis.ru/2.0/frame?key=${encodeURIComponent(TWOGIS_KEY.trim())}&point=${MAP_POINT.lon}%2C${MAP_POINT.lat}&z=16`
-    : `https://yandex.ru/map-widget/v1/?ll=${point}&z=16&pt=${point}%2Cpm2rdm`;
+  /* Карта собирается вручную, а не через iframe: так она наследует нашу
+     стилистику (метка, зум, подписи) и не тянет чужой рантайм. */
+  useEffect(() => {
+    const el = canvas.current;
+    if (!visible || !el || mapRef.current) return;
 
-  const openUrl = CONTACT_LINKS.address;
-  const openLabel = "Открыть в 2ГИС";
+    let disposed = false;
+    let ro: ResizeObserver | null = null;
+    let fallback = 0;
+
+    void (async () => {
+      const mod = await import("leaflet");
+      const L = (mod.default ?? mod) as typeof import("leaflet");
+      if (disposed || !el.isConnected) return;
+
+      const map = L.map(el, {
+        center: [MAP_POINT.lat, MAP_POINT.lon],
+        zoom: 16,
+        zoomControl: false, // свой контрол поставим в правый нижний угол
+        scrollWheelZoom: false, // колесо прокручивает страницу, а не зумит карту
+        attributionControl: false, // свой, без префикса «Leaflet»
+        keyboard: true,
+      });
+      mapRef.current = map;
+
+      L.control.attribution({ prefix: false }).addTo(map);
+
+      const tiles = L.tileLayer(TWOGIS_TILES, {
+        subdomains: TWOGIS_TILE_SUBDOMAINS,
+        minZoom: 3,
+        maxZoom: 19,
+        detectRetina: true,
+        attribution: `© <a href="${TWOGIS_URL}" target="_blank" rel="noreferrer">2ГИС</a>`,
+      }).addTo(map);
+
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      const pin = L.divIcon({
+        className: "map-pin",
+        html: '<span class="map-pin__ring"></span><span class="map-pin__dot"></span>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+
+      L.marker([MAP_POINT.lat, MAP_POINT.lon], { icon: pin, title: `${CITY}, ${ADDRESS}` })
+        .addTo(map)
+        .bindTooltip("Car Stile", {
+          permanent: true,
+          direction: "top",
+          offset: [0, -14],
+          className: "map-pin__label",
+        });
+
+      // Тайлы приходят пачкой: снимаем заглушку, когда она готова. Таймер —
+      // страховка, чтобы мерцающая плашка не осталась навсегда при сбое сети.
+      const showMap = () => setReady(true);
+      fallback = window.setTimeout(showMap, 2500);
+      tiles.on("load", showMap);
+      tiles.on("tileerror", showMap);
+
+      // Контейнер получает настоящий размер только после отрисовки.
+      ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => map.invalidateSize());
+      ro?.observe(el);
+    })();
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(fallback);
+      ro?.disconnect();
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, [visible]);
 
   return (
-    <div className="contact-map reveal" ref={holder} data-shown="">
-      {visible ? (
-        <iframe
-          className="contact-map__frame"
-          src={src}
-          title={`Карта: ${CITY}, ${ADDRESS}`}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          allowFullScreen
+    <div className="map-card reveal" ref={holder} data-shown="">
+      <div className="map-card__canvas" data-state={ready ? "ready" : "loading"} aria-busy={!ready}>
+        <div
+          className="map-card__canvas-inner"
+          ref={canvas}
+          role="region"
+          aria-label={`Карта 2ГИС: ${CITY}, ${ADDRESS}`}
         />
-      ) : (
-        <div className="contact-map__placeholder" aria-hidden="true">
-          <MapPin size={26} />
-          <span>
-            {CITY}, {ADDRESS}
-          </span>
+        <div className="map-card__stub" aria-hidden="true">
+          <MapPin size={22} />
+          <span>Загружаем карту…</span>
         </div>
-      )}
-      <a className="contact-map__link" href={openUrl} target="_blank" rel="noreferrer">
-        <MapPin size={16} aria-hidden="true" />
-        {openLabel}
-        <ArrowUpRight size={14} aria-hidden="true" />
-      </a>
+        <span className="map-card__brand" translate="no">
+          2ГИС
+        </span>
+      </div>
+
+      <div className="map-card__panel">
+        <div className="map-card__meta">
+          <span className="eyebrow">Мастерская</span>
+          <strong>
+            {CITY}, {ADDRESS}
+          </strong>
+          <span>Ориентир — остановка «Дворец школьников», около 200 м.</span>
+          <span>{HOURS}</span>
+        </div>
+        <div className="map-card__actions">
+          <a className="button button--accent" href={CONTACT_LINKS.address} target="_blank" rel="noreferrer">
+            <MapPin size={16} aria-hidden="true" />
+            Открыть в 2ГИС
+            <ArrowUpRight size={14} aria-hidden="true" />
+          </a>
+          <a className="button button--outline" href={PHONE_HREF}>
+            <Phone size={16} aria-hidden="true" />
+            Позвонить
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

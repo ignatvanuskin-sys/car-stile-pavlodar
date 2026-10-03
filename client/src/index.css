@@ -18,7 +18,12 @@
      --accent читается на тёмном фоне (9:1), --accent-ink — на светлой бумаге. */
   --accent: #e0b44a;
   --accent-ink: #7d5a1c;
+  /* Звёзды рейтинга на светлой бумаге: чистый --accent даёт ~1.8:1 и читается
+     как бледное пятно, поэтому на светлых поверхностях берём тёмное золото
+     (3:1 к бумаге — минимум для нетекстовой графики). */
+  --star: #a8781a;
   --dark-line: rgba(239, 237, 232, 0.19);
+  --dark-muted: rgba(239, 237, 232, 0.68);
   --serif: "DM Serif Display", Georgia, serif;
   --sans: "Manrope", Arial, sans-serif;
 
@@ -1070,7 +1075,7 @@ em {
 .package-card li svg {
   flex: none;
   margin-top: 2px;
-  color: #7d8f2f;
+  color: var(--accent-ink);
 }
 
 .package-card--featured li svg {
@@ -1108,7 +1113,7 @@ em {
 }
 
 .reviews-rating .review-stars {
-  color: #a9c32e;
+  color: var(--star);
 }
 
 .reviews-grid {
@@ -1128,7 +1133,7 @@ em {
 .review-stars {
   display: flex;
   gap: 3px;
-  color: #a9c32e;
+  color: var(--star);
 }
 
 .review-card blockquote {
@@ -1156,14 +1161,16 @@ em {
 
 /* ------------------------------------------------------------------- process */
 
+/* Тёмная полоса вместо кислотно-лаймовой: акцент бренда — золото на графите,
+   и тёмный блок ритмично перекликается с тёмным первым экраном и футером. */
 .process-band {
   padding: var(--section-y) 0;
-  background: #d5ff3d;
-  color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .process-intro .eyebrow {
-  color: #5f6b1c;
+  color: var(--accent);
 }
 
 .process-intro h2 {
@@ -1173,13 +1180,13 @@ em {
 .process-intro p {
   margin: 15px 0 0;
   max-width: 34ch;
-  color: #3d4413;
+  color: var(--dark-muted);
   font-size: 14.5px;
 }
 
 .process-steps {
   margin-top: 24px;
-  border-top: 1px solid rgba(17, 17, 15, 0.28);
+  border-top: 1px solid var(--dark-line);
 }
 
 .process-step {
@@ -1187,14 +1194,15 @@ em {
   grid-template-columns: 32px minmax(0, 1fr);
   gap: 12px;
   padding: 15px 0;
-  border-bottom: 1px solid rgba(17, 17, 15, 0.28);
+  border-bottom: 1px solid var(--dark-line);
 }
 
 .process-step span {
-  color: #5f6b1c;
+  color: var(--accent);
   font-size: 11.5px;
   font-weight: 800;
   letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
 }
 
 .process-step strong {
@@ -1205,7 +1213,7 @@ em {
 
 .process-step p {
   margin: 5px 0 0;
-  color: #3d4413;
+  color: var(--dark-muted);
   font-size: 13.5px;
   line-height: 1.5;
 }
@@ -2137,7 +2145,7 @@ em {
   .package-card--featured {
     /* Must keep an opaque dark fill: the generic .package-card rule above
        sets `background: transparent` and would otherwise win the cascade,
-       leaving the lime price/badge text unreadable on the light page. */
+       leaving the gold price/badge text unreadable on the light page. */
     background: var(--ink);
     transform: translateY(-18px);
   }
@@ -2540,59 +2548,248 @@ em {
   gap: 6px 14px;
 }
 
-.contact-map {
+/* --- map card ---------------------------------------------------------------
+   The 2GIS widget is a third-party iframe, so the card reserves its own height
+   with `aspect-ratio` rather than a min-height guess: nothing under it shifts
+   when the frame finally paints. The address panel is ordinary DOM, not part of
+   the widget, so the place stays findable even if the iframe is blocked — and
+   nothing overlaps the widget's own controls or its attribution. */
+.map-card {
   position: relative;
-  display: block;
-  min-height: 260px;
   border: 1px solid var(--line-strong);
-  background: #d6d1c9;
+  background: var(--paper);
+  box-shadow: 0 26px 60px -38px rgba(17, 17, 15, 0.65);
   overflow: hidden;
 }
 
-.contact-map__frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 260px;
-  border: 0;
+.map-card__canvas {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #e7e3da;
 }
 
-/* Shown for the moment before the widget is inserted, and for good if the
-   iframe never loads. */
-.contact-map__placeholder {
+/* Leaflet расставляет панели с z-index от 400 до 800, поэтому изолируем его
+   внутри собственного контекста наложения: бейдж «2ГИС» и плашка загрузки
+   остаются выше карты и не воюют с чужими z-index. */
+.map-card__canvas-inner {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  isolation: isolate;
+  background: #e7e3da;
+}
+
+/* Loading plate: same footprint as the frame it replaces, so the skeleton can
+   never flash in at a different size, plus a status line that ends with an
+   ellipsis the way the guidelines ask. */
+.map-card__stub {
   position: absolute;
   inset: 0;
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 8px;
-  padding: 20px;
-  text-align: center;
-  color: var(--ink);
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  background: linear-gradient(100deg, #e7e3da 30%, #f4f1ea 50%, #e7e3da 70%);
+  background-size: 220% 100%;
+  animation: map-shimmer 1.7s linear infinite;
+  transition: opacity 0.4s ease;
 }
 
-.contact-map__placeholder span {
-  font-size: 13.5px;
+.map-card__canvas[data-state="ready"] .map-card__stub {
+  opacity: 0;
+  visibility: hidden;
+}
+
+@keyframes map-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-card__stub {
+    animation: none;
+  }
+}
+
+.map-card__brand {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  background: rgba(239, 237, 232, 0.92);
+  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.map-card__panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.map-card__meta {
+  display: grid;
+  gap: 5px;
+}
+
+.map-card__meta strong {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.map-card__meta span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.map-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.map-card__actions .button {
+  min-height: 42px;
+  padding: 0 16px;
+  font-size: 12px;
+}
+
+/* --- карта 2ГИС: элементы Leaflet в палитре карточки ------------------------ */
+
+.map-card__canvas .leaflet-container {
+  font-family: var(--sans);
+  background: #e7e3da;
+}
+
+/* Тайлы 2ГИС приглушаем: в исходной палитре много насыщенной зелени, которая
+   спорит с тёплой бумажной гаммой сайта. Лёгкая десатурация оставляет карту
+   читаемой, но уводит её на второй план — карточка важнее подложки. */
+.map-card__canvas .leaflet-tile {
+  filter: saturate(0.62) contrast(1.03);
+}
+
+.map-card__canvas .leaflet-container:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: -3px;
+}
+
+/* Метка мастерской: тёплое золото в тон акценту плюс мягкий пульс, чтобы
+   точка читалась на плотной застройке, а не сливалась с подложкой. */
+.map-pin {
+  position: relative;
+}
+
+.map-pin__dot {
+  position: absolute;
+  inset: 6px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent-ink);
+  box-shadow: 0 2px 6px rgba(17, 17, 15, 0.45);
+}
+
+.map-pin__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(224, 180, 74, 0.42);
+  animation: map-pulse 2.4s ease-out infinite;
+}
+
+@keyframes map-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.85;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-pin__ring {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.map-card__canvas .leaflet-tooltip.map-pin__label {
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 20px -10px rgba(17, 17, 15, 0.9);
+}
+
+.map-card__canvas .leaflet-tooltip.map-pin__label::before {
+  border-top-color: var(--ink);
+}
+
+/* Зум и копирайт: плотнее и в палитре карточки, а не в дефолтном Leaflet */
+.map-card__canvas .leaflet-control-zoom {
+  margin: 0 12px 12px 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 10px 24px -14px rgba(17, 17, 15, 0.8);
+}
+
+.map-card__canvas .leaflet-control-zoom a {
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
   font-weight: 700;
 }
 
-/* A real link, not a button inside the frame: the address stays reachable even
-   if the third-party iframe is blocked. */
-.contact-map__link {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 14px;
-  background: var(--accent);
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 800;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+.map-card__canvas .leaflet-control-zoom a:hover,
+.map-card__canvas .leaflet-control-zoom a:focus-visible {
+  background: var(--ink);
+  color: var(--accent);
+}
+
+.map-card__canvas .leaflet-control-zoom a + a {
+  border-top: 1px solid var(--line);
+}
+
+.map-card__canvas .leaflet-control-attribution {
+  margin: 0;
+  padding: 2px 8px;
+  background: rgba(239, 237, 232, 0.88);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.map-card__canvas .leaflet-control-attribution a {
+  color: var(--accent-ink);
+  font-weight: 700;
 }
 
 @media (min-width: 900px) {
@@ -2606,9 +2803,19 @@ em {
     font-size: clamp(44px, 5vw, 68px);
   }
 
-  .contact-map,
-  .contact-map__frame {
-    min-height: 460px;
+  .map-card__canvas {
+    aspect-ratio: 16 / 10;
+  }
+
+  .map-card__panel {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 24px;
+    padding: 20px 24px;
+  }
+
+  .map-card__actions {
+    flex: none;
   }
 }
 
