@@ -279,13 +279,31 @@ em {
 
 .brand {
   display: inline-flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  gap: 10px;
   min-height: var(--tap);
   font-size: 22px;
   font-weight: 800;
   line-height: 0.82;
   letter-spacing: -0.07em;
+}
+
+.brand__mark {
+  display: block;
+  flex: none;
+  width: 40px;
+  height: 40px;
+}
+
+.brand__text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.brand--footer .brand__mark {
+  width: 52px;
+  height: 52px;
 }
 
 .brand small {
@@ -3051,7 +3069,10 @@ em {
 /* --- trust bar: slow marquee on wide screens, static stack on phones ------- */
 /* The static stack is the phone default; the marquee only takes over on wide
    screens, so a phone never loads a 38s animation it cannot see. */
+/* Подписи «Что важно» больше нет, поэтому обе оставшиеся группы обязаны
+   занимать всю ширину — иначе они сжимаются в первую из двух колонок. */
 .trust-static {
+  grid-column: 1 / -1;
   display: grid;
   gap: 8px;
 }
@@ -3070,6 +3091,7 @@ em {
 
 @media (min-width: 900px) {
   .trust-marquee {
+    grid-column: 1 / -1;
     display: flex;
     align-items: center;
     min-width: max-content;

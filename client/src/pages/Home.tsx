@@ -1531,8 +1531,14 @@ export default function Home() {
 
       <header className={`site-header ${scrolled ? "site-header--scrolled" : ""}`}>
         <a href="#top" className="brand" aria-label="Car Stile — в начало страницы" onClick={(e) => { e.preventDefault(); scrollTo("top"); }}>
-          <span>CAR</span>
-          <small>STILE</small>
+          {/* Эмблема вырезана из присланного логотипа; название рядом набрано
+              типографикой сайта, потому что внутри логотипа надпись занимает
+              11 px по высоте и в интерфейсе нечитаема. */}
+          <img className="brand__mark" src="/logo-mark.png" alt="" width={40} height={40} decoding="async" />
+          <span className="brand__text">
+            <span>CAR</span>
+            <small>STILE</small>
+          </span>
         </a>
 
         <nav id="site-nav" className={menuOpen ? "nav-links nav-links--open" : "nav-links"} aria-label="Основная навигация">
@@ -1592,7 +1598,7 @@ export default function Home() {
             priority
             mobile={art("hero-mobile", [480, 800, 1200], "100vw")}
             desktop={art("hero-wide", [1280, 1920], "100vw")}
-            alt="Глянцевый кузов после полировки — Car Stile, Павлодар"
+            alt="Мастер полирует фару автомобиля — Car Stile, Павлодар"
           />
           <div className="hero-overlay" />
           <div className="hero-content">
@@ -1631,7 +1637,6 @@ export default function Home() {
         </section>
 
         <section className="trust-bar" aria-label="Ключевые преимущества">
-          <span className="eyebrow">Что важно</span>
           {/* Duplicated once so the marquee can loop seamlessly at -50%.
               The copy is hidden from assistive tech to avoid reading it twice. */}
           <div className="trust-marquee" aria-hidden="true">
@@ -2031,9 +2036,12 @@ export default function Home() {
 
       <footer className="footer">
         <div className="footer-top">
-          <a href="#top" className="brand" onClick={(e) => { e.preventDefault(); scrollTo("top"); }}>
-            <span>CAR</span>
-            <small>STILE</small>
+          <a href="#top" className="brand brand--footer" onClick={(e) => { e.preventDefault(); scrollTo("top"); }}>
+            <img className="brand__mark" src="/logo-mark.png" alt="" width={52} height={52} loading="lazy" decoding="async" />
+            <span className="brand__text">
+              <span>CAR</span>
+              <small>STILE</small>
+            </span>
           </a>
           <p>
             Полировка. Химчистка.
