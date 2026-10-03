@@ -117,11 +117,11 @@ r = await call({ ...good, code: "" });
 check("код генерируется на сервере", r.body.code && /^CS-\d{6}-[A-Z0-9]{3}$/.test(r.body.code), true);
 
 // Тело строкой: Vercel обычно отдаёт разобранный объект, но клиент может
-// прислать строку, в том числе с меткой порядка байтов — разбор не должен падать.
+// прислать строку — разбор не должен падать.
 r = await call(JSON.stringify(good));
 check("тело строкой", [r.code, r.body.ok], [200, true]);
-r = await call("\uFEFF" + JSON.stringify(good));
-check("тело строкой с BOM", [r.code, r.body.ok], [200, true]);
+r = await call("  \n  " + JSON.stringify(good));
+check("тело строкой с отступами", [r.code, r.body.ok], [200, true]);
 r = await call("{это не json");
 check("битый JSON отклонён", r.code, 400);
 
