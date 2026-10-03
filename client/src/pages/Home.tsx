@@ -313,7 +313,16 @@ const formatTenge = (value: number) => `${value.toLocaleString("ru-RU").replace(
 
 /* --------------------------------------------------------------- responsive */
 
-const srcSetFor = (base: string, widths: number[]) => widths.map((w) => `/img/${base}-${w}.webp ${w}w`).join(", ");
+/* Версия фото-ассетов.
+   Файлы в /img отдаются с заголовком «max-age=31536000, immutable», а имена у
+   них не хешируются: один и тот же путь живёт годами. Поэтому после замены
+   любой фотографии нужно поднять IMG_V — иначе у вернувшихся посетителей
+   останется старая картинка из кэша. Проверено на живом браузере: без версии
+   новый hero не показывался даже после пересборки. */
+const IMG_V = "2";
+
+const srcSetFor = (base: string, widths: number[]) =>
+  widths.map((w) => `/img/${base}-${w}.webp?v=${IMG_V} ${w}w`).join(", ");
 
 type Art = { base: string; widths: number[]; sizes: string };
 
@@ -335,7 +344,7 @@ function Picture({
       {desktop ? <source media="(min-width: 900px)" type="image/webp" srcSet={srcSetFor(desktop.base, desktop.widths)} sizes={desktop.sizes} /> : null}
       <source type="image/webp" srcSet={srcSetFor(mobile.base, mobile.widths)} sizes={mobile.sizes} />
       <img
-        src={`/img/${mobile.base}-${mobile.widths[mobile.widths.length - 1]}.webp`}
+        src={`/img/${mobile.base}-${mobile.widths[mobile.widths.length - 1]}.webp?v=${IMG_V}`}
         alt={alt}
         loading={priority ? "eager" : "lazy"}
         decoding="async"
@@ -1598,7 +1607,7 @@ export default function Home() {
             priority
             mobile={art("hero-mobile", [480, 800, 1200], "100vw")}
             desktop={art("hero-wide", [1280, 1920], "100vw")}
-            alt="Мастер полирует фару автомобиля — Car Stile, Павлодар"
+            alt="Отполированный глянцевый кузов автомобиля крупным планом"
           />
           <div className="hero-overlay" />
           <div className="hero-content">

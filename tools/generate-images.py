@@ -6,10 +6,25 @@
 check_assets.py; лишние файлы в сборку не попадают.
 """
 import os
+import sys
+
 from PIL import Image
 
-SRC = r"C:\ЗА БАБКИ\детейлинг ПОД КЛЮЧ\car stile 7\assets"
-OUT = r"C:\ЗА БАБКИ\центр\car-stile\client\public\img"
+# Корень проекта — считается от самого файла, поэтому генератор не привязан
+# к машине, на которой его запускают.
+PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Исходники заказчика (фото из карточки 2ГИС). Путь можно переопределить первым
+# аргументом: python tools/generate-images.py "D:\photos".
+SRC = sys.argv[1] if len(sys.argv) > 1 else r"C:\ЗА БАБКИ\детейлинг ПОД КЛЮЧ\car stile 7\assets"
+OUT = os.path.join(PROJ, "client", "public", "img")
+
+
+def source_path(name):
+    """Имена, начинающиеся с «_», лежат в репозитории (_stock, _brand)."""
+    if name.startswith("_"):
+        return os.path.join(PROJ, name)
+    return os.path.join(SRC, name)
 
 R_CARD = 4 / 3
 R_TALL = 3 / 4
@@ -20,12 +35,16 @@ R_MOB = 3 / 4
 # база -> (исходник, [(суффикс, ширина, соотношение), ...], точка внимания)
 # суффикс None = имя без суффикса (базы «до/после» уже сами по себе полные).
 PLAN = {
-    # Hero: кадр живого процесса — мастер полирует фару. Показывает работу, а не
-    # просто «красивую машину»: за пять секунд видно, чем занимается мастерская.
-    # Исходник 04 портретный, из него набираются и широкий, и мобильный кадры.
-    "hero": ("04-fara-process.jpg",
+    # Hero: стоковое фото с Pexels вместо своих кадров — по просьбе заказчика.
+    # Фото 29755711, лицензия Pexels (свободно, в том числе коммерчески, без
+    # обязательной атрибуции): https://www.pexels.com/photo/29755711/
+    # Выбрано из шести вариантов: глянцевый кузов подходит под заголовок
+    # «Глянец, чистота и тишина», а людей и крупных чужих логотипов в кадре нет —
+    # лицензия прямо запрещает намекать на одобрение со стороны брендов и людей.
+    # Портретный исходник 2560x3837, из него набираются и широкий, и мобильный кадры.
+    "hero": ("_stock/hero-gloss-black.jpg",
              [("wide", 1280, R_WIDE), ("wide", 1920, R_WIDE),
-              ("mobile", 480, R_MOB), ("mobile", 800, R_MOB), ("mobile", 1200, R_MOB)], 0.40),
+              ("mobile", 480, R_MOB), ("mobile", 800, R_MOB), ("mobile", 1200, R_MOB)], 0.52),
     # Полировка: крупный глянцевый капот — ровно то, что продаёт услугу.
     "polish": ("02-polish-hood.jpg",
                [("card", 480, R_CARD), ("card", 800, R_CARD),
@@ -82,7 +101,7 @@ def main():
             os.remove(os.path.join(OUT, n))
 
     for base, (srcname, variants, focus) in PLAN.items():
-        with Image.open(os.path.join(SRC, srcname)) as raw:
+        with Image.open(source_path(srcname)) as raw:
             src = raw.convert("RGB")
         for suffix, width, ratio in variants:
             im = crop_to(src, ratio, focus)
