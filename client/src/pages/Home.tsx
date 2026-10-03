@@ -309,7 +309,22 @@ const serviceNames: string[] = serviceOptions.map((s) => s.name);
 const yearOptions = Array.from({ length: 30 }, (_, i) => String(new Date().getFullYear() - i));
 
 /** Renders tenge with thin spaces: 25 000 ₸ */
-const formatTenge = (value: number) => `${value.toLocaleString("ru-RU").replace(/ /g, " ")} ₸`;
+const formatTenge = (value: number) => `${value.toLocaleString("ru-RU").replace(/ /g, " ")} ₸`;
+
+/**
+ * Номер заявки: дата плюс три символа без похожих друг на друга знаков, чтобы
+ * его можно было продиктовать по телефону. Ровно такой же формат генерирует
+ * сервер, если код до него не дошёл.
+ */
+function makeLeadCode(now = new Date()): string {
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let suffix = "";
+  for (let i = 0; i < 3; i += 1) suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return `CS-${yy}${mm}${dd}-${suffix}`;
+}
 
 /* --------------------------------------------------------------- responsive */
 
@@ -514,6 +529,10 @@ type BookingForm = {
   date: string;
   time: string;
   comment: string;
+  /** Согласие на обработку персональных данных — без него заявку не отправляем. */
+  consent: boolean;
+  /** Приманка для ботов: живой человек это поле не видит и не заполняет. */
+  company: string;
 };
 
 const emptyForm: BookingForm = {
@@ -528,6 +547,8 @@ const emptyForm: BookingForm = {
   date: "",
   time: "",
   comment: "",
+  consent: false,
+  company: "",
 };
 
 /** Plus glyph for "add this service"; a tick replaces it once selected. */
@@ -768,6 +789,7 @@ function BookingSheet({
   const [copied, setCopied] = useState(false);
   const [copyFallback, setCopyFallback] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
+  const [leadCode, setLeadCode] = useState("");
   const dragStart = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -895,6 +917,7 @@ function BookingSheet({
     }
     if (target >= 2) {
       if (!form.name.trim()) next.name = "Как к вам обращаться?";
+      if (!form.consent) next.consent = "Без согласия на обработку данных мы не можем принять заявку";
       const digits = form.phone.replace(/\D/g, "");
       if (digits.length < 10) next.phone = "Введите номер телефона полностью";
       else if (digits.length > 15) next.phone = "Слишком много цифр — проверьте номер";
@@ -924,11 +947,12 @@ function BookingSheet({
   /* Заявка уходит в WhatsApp мастерской. Бэкенда у статического сайта нет,
      поэтому единственный честный «отправитель» — сам клиент: мы собираем
      готовый текст и открываем чат, где остаётся нажать «Отправить». */
-  const buildMessage = () => {
+  const buildMessage = (code = leadCode) => {
     const chosen = form.pack ? `пакет ${form.pack}` : form.services.length ? form.services.join(", ") : "—";
     const channel = form.channel === "phone" ? "звонок" : form.channel === "whatsapp" ? "WhatsApp" : "Telegram";
     const lines = [
       "Заявка с сайта Car Stile",
+      ...(code ? [`Номер заявки: ${code}`] : []),
       `Услуги: ${chosen}`,
       `Автомобиль: ${[form.make, form.model, form.year].filter(Boolean).join(" ") || "—"}`,
       `Дата и время: ${[form.date, form.time].filter(Boolean).join(", ") || "—"}`,
@@ -940,7 +964,22 @@ function BookingSheet({
     return lines.join("\n");
   };
 
-  const waHref = () => `${CONTACT_LINKS.whatsapp}?text=${encodeURIComponent(buildMessage())}`;
+  const waHref = (code = leadCode) => `${CONTACT_LINKS.whatsapp}?text=${encodeURIComponent(buildMessage(code))}`;
+
+  /** Оценка с сайта — только ориентир: у каждого заказа фактическая цена своя. */
+  const estimateText = () => {
+    const packItem = packOptions.find((p) => p.name === form.pack);
+    if (packItem) return packItem.price > 0 ? `от ${formatTenge(packItem.price)}` : "по расчёту";
+
+    const lines = form.services
+      .map((name) => serviceOptions.find((s) => s.name === name))
+      .filter((s): s is (typeof serviceOptions)[number] => Boolean(s));
+    if (lines.length === 0) return "";
+
+    const known = lines.filter((s) => s.price > 0);
+    if (known.length !== lines.length) return "по расчёту";
+    return `от ${formatTenge(known.reduce((sum, s) => sum + s.price, 0))}`;
+  };
 
   /* Копирование с честной обратной связью. Если буфер обмена недоступен
      (нет разрешения, небезопасный контекст, отказ браузера) — не показываем
@@ -973,7 +1012,34 @@ function BookingSheet({
       return;
     }
     if (step === STEPS.length - 1) {
-      const href = waHref();
+      /* Номер заявки нужен и мастерской в тексте, и клиенту на экране успеха. */
+      const code = leadCode || makeLeadCode();
+      if (!leadCode) setLeadCode(code);
+
+      /* Копия заявки уходит владельцу сайта. Намеренно не ждём ответа и не
+         показываем ошибку: путь клиента к мастерской не должен зависеть от
+         нашего приёмника. Если он недоступен — заявка всё равно уйдёт в WhatsApp. */
+      void fetch("/api/lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          pack: form.pack,
+          services: form.services,
+          car: [form.make, form.model, form.year].filter(Boolean).join(" "),
+          date: form.date,
+          time: form.time,
+          name: form.name,
+          phone: form.phone,
+          channel: form.channel === "phone" ? "звонок" : form.channel === "whatsapp" ? "WhatsApp" : "Telegram",
+          comment: form.comment,
+          estimate: estimateText(),
+          source: "form",
+          company: form.company,
+        }),
+      }).catch(() => undefined);
+
+      const href = waHref(code);
       setSending(true);
       setSent(true);
       /* window.open вызываем прямо в обработчике клика. В отложенном таймере
@@ -1269,6 +1335,44 @@ function BookingSheet({
                       </button>
                     ))}
                   </div>
+
+                  {/* Согласие на обработку данных. Форма собирает имя и телефон,
+                      поэтому без явного согласия отправлять их нельзя — в том
+                      числе владельцу сайта, который получает копию заявки. */}
+                  <div className="field field--consent">
+                    <label className="consent">
+                      <input
+                        type="checkbox"
+                        checked={form.consent}
+                        onChange={(e) => set("consent", e.target.checked)}
+                        data-field="consent"
+                        aria-invalid={errors.consent ? true : undefined}
+                        aria-describedby={errors.consent ? "err-consent" : undefined}
+                      />
+                      <span>
+                        Согласен на обработку персональных данных. Имя и телефон нужны, чтобы мастерская связалась со мной и
+                        подтвердила запись. Данные получают мастерская Car Stile и владелец сайта, третьим лицам они не
+                        передаются. Отозвать согласие можно по телефону мастерской.
+                      </span>
+                    </label>
+                    {errors.consent ? (
+                      <span className="field-error" id="err-consent" role="alert">
+                        {errors.consent}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Приманка для ботов: поле скрыто от людей, но автозаполнители
+                      и спам-боты в него пишут. */}
+                  <input
+                    className="hp-field"
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                    value={form.company}
+                    onChange={(e) => set("company", e.target.value)}
+                  />
                 </>
               ) : null}
 
@@ -1419,6 +1523,11 @@ function BookingSheet({
                 ? "Браузер заблокировал новое окно. Нажмите «Открыть WhatsApp» — заявка уже заполнена, останется отправить её в чате."
                 : `Мы открыли WhatsApp с уже заполненной заявкой — нажмите «Отправить» в чате. Если окно не открылось, откройте его кнопкой ниже или позвоните: ${PHONE_DISPLAY}.`}
             </p>
+            {leadCode ? (
+              <p className="lead-code">
+                Номер заявки: <b>{leadCode}</b> — назовите его мастеру.
+              </p>
+            ) : null}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
               <a className="button button--accent" href={waHref()} target="_blank" rel="noreferrer">
                 Открыть WhatsApp <ArrowUpRight size={16} aria-hidden="true" />

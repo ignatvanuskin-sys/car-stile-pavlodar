@@ -11,7 +11,7 @@
   },
   "rewrites": [
     {
-      "source": "/((?!assets/|img/|[^/]*\\.(?:png|jpe?g|webp|svg|ico|txt|xml|webmanifest|js|css|map)$).*)",
+      "source": "/((?!api/|assets/|img/|[^/]*\\.(?:png|jpe?g|webp|svg|ico|txt|xml|webmanifest|js|css|map)$).*)",
       "destination": "/index.html"
     }
   ],
