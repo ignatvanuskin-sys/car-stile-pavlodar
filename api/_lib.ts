@@ -26,6 +26,20 @@ export interface Lead {
 
 export const CODE_RE = /CS-\d{6}-[A-Z0-9]{3}/;
 
+/**
+ * Разбирает тело запроса.
+ *
+ * Vercel с включёнными помощниками отдаёт уже разобранный объект, но если тело
+ * пришло строкой — парсим сами. Метку порядка байтов срезаем: некоторые клиенты
+ * и прокси ставят её перед JSON, и тогда разбор падает на ровном месте.
+ */
+export function parseBody(body: unknown): Record<string, unknown> {
+  if (typeof body !== "string") return (body as Record<string, unknown>) ?? {};
+  const text = body.replace(/^\uFEFF/, "").trim();
+  if (!text) return {};
+  return JSON.parse(text) as Record<string, unknown>;
+}
+
 const LIMITS: Record<string, number> = {
   code: 24,
   pack: 40,

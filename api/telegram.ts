@@ -4,6 +4,7 @@ import {
   commissionFor,
   formatTenge,
   parseAmount,
+  parseBody,
   sendTelegram,
   COMMISSION_RATE,
 } from "./_lib.js";
@@ -78,7 +79,7 @@ export default async function handler(req: Req, res: Res) {
 
   let update: TgUpdate = {};
   try {
-    update = typeof req.body === "string" ? JSON.parse(req.body) : ((req.body as TgUpdate) ?? {});
+    update = parseBody(req.body) as unknown as TgUpdate;
   } catch {
     res.status(200).json({ ok: true });
     return;

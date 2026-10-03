@@ -1,4 +1,13 @@
-import { appendToSheet, clean, corsHeaders, leadMessage, makeCode, sendTelegram, type Lead } from "./_lib.js";
+import {
+  appendToSheet,
+  clean,
+  corsHeaders,
+  leadMessage,
+  makeCode,
+  parseBody,
+  sendTelegram,
+  type Lead,
+} from "./_lib.js";
 
 /**
  * Приём заявки с сайта.
@@ -69,7 +78,7 @@ export default async function handler(req: Req, res: Res) {
 
   let raw: Record<string, unknown> = {};
   try {
-    raw = typeof req.body === "string" ? JSON.parse(req.body) : ((req.body as Record<string, unknown>) ?? {});
+    raw = parseBody(req.body);
   } catch {
     res.status(400).json({ ok: false, error: "Некорректное тело запроса" });
     return;
