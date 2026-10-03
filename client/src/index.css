@@ -1640,6 +1640,16 @@ em {
   font-weight: 600;
 }
 
+/* Подсказка под полем: показывает, сколько цифр уже введено. Стоит на месте
+   сообщения об ошибке, поэтому поле не дёргается, когда ошибка появляется. */
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
 .contact-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

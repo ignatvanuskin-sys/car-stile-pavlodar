@@ -156,9 +156,15 @@ export async function sendTelegram(
   text: string,
   options: { chatId?: string; replyTo?: number; buttons?: { text: string; data: string }[][] } = {},
 ): Promise<boolean> {
-  if (!process.env.TELEGRAM_BOT_TOKEN) return false;
+  if (!process.env.TELEGRAM_BOT_TOKEN) {
+    console.error("[lead] TELEGRAM_BOT_TOKEN не задан — уведомление не отправлено");
+    return false;
+  }
   const chatId = options.chatId ?? process.env.TELEGRAM_CHAT_ID;
-  if (!chatId) return false;
+  if (!chatId) {
+    console.error("[lead] TELEGRAM_CHAT_ID не задан — уведомление не отправлено");
+    return false;
+  }
 
   const payload: Record<string, unknown> = {
     chat_id: chatId,
@@ -173,14 +179,23 @@ export async function sendTelegram(
     };
   }
 
+  /* Ошибки пишем в лог функции. Раньше неудачная отправка молча превращалась в
+     notified:false, и понять причину было нечем. Токен и содержимое заявки в
+     лог не попадают — только статус и ответ Telegram. */
   try {
     const res = await fetch(api("sendMessage"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    return res.ok;
-  } catch {
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error("[lead] Telegram отклонил сообщение:", res.status, detail.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("[lead] запрос к Telegram не прошёл:", error instanceof Error ? error.message : error);
     return false;
   }
 }
@@ -188,6 +203,8 @@ export async function sendTelegram(
 /** Отправляет строку в Google-таблицу через веб-приложение Apps Script. */
 export async function appendToSheet(row: Record<string, unknown>): Promise<boolean> {
   const url = process.env.SHEET_WEBHOOK_URL;
+  /* Таблица не обязательна: пока её не подключили, это штатная ситуация,
+     поэтому здесь не ошибка, а тихий выход. */
   if (!url) return false;
   try {
     const res = await fetch(url, {
@@ -195,8 +212,14 @@ export async function appendToSheet(row: Record<string, unknown>): Promise<boole
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...row, secret: process.env.SHEET_WEBHOOK_SECRET ?? "" }),
     });
-    return res.ok;
-  } catch {
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error("[lead] таблица отклонила запись:", res.status, detail.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("[lead] запрос к таблице не прошёл:", error instanceof Error ? error.message : error);
     return false;
   }
 }

@@ -373,6 +373,49 @@ function makeLeadCode(now = new Date()): string {
   return `CS-${yy}${mm}${dd}-${suffix}`;
 }
 
+/** Сколько цифр может быть в номере: код страны и десять цифр (+7 771 100 02 21). */
+const MAX_PHONE_DIGITS = 11;
+
+/** Подсказка под полем ввода номера. */
+const PHONE_EXAMPLE = "+7 771 100 02 21";
+
+/**
+ * Приводит номер к виду «+7 771 100 02 21» прямо во время ввода.
+ *
+ * Раньше в поле можно было набрать сколько угодно знаков: лишние цифры
+ * отлавливались только при отправке, и человек узнавал об этом в конце. Теперь
+ * сверх нормы ввести нельзя — лишнее просто не попадает в поле.
+ *
+ * «8 771…» — привычная местная запись казахстанского номера, приводим её к +7,
+ * как это делают все местные формы. Номер, начинающийся с другой страны,
+ * оставляем как есть и только ограничиваем длину.
+ */
+function formatPhone(raw: string): string {
+  const hadPlus = raw.trimStart().startsWith("+");
+  let digits = raw.replace(/\D/g, "");
+
+  /* «8 771…» — привычная местная запись: восьмёрка означает код страны. */
+  const typedEight = !hadPlus && digits.startsWith("8");
+  if (typedEight) digits = `7${digits.slice(1)}`;
+
+  /* Код страны уже набран, если есть «+», была восьмёрка или цифр больше
+     десяти. Десять цифр кода страны содержать не могут, поэтому такой номер
+     считаем местным и подставляем +7 сами: иначе набранное «771 100 02 21»
+     читалось бы как +7 711 000 221. */
+  const hasCode = hadPlus || typedEight || digits.length > 10;
+  digits = (hasCode ? digits : `7${digits}`).slice(0, MAX_PHONE_DIGITS);
+
+  if (!digits) return hadPlus ? "+" : "";
+  const groups = [
+    digits.slice(0, 1),
+    digits.slice(1, 4),
+    digits.slice(4, 7),
+    digits.slice(7, 9),
+    digits.slice(9, 11),
+  ];
+  return `+${groups.filter(Boolean).join(" ")}`;
+}
+
 /* --------------------------------------------------------------- responsive */
 
 /* Версия фото-ассетов.
@@ -1062,6 +1105,12 @@ function BookingSheet({
     };
   }, [open, onClose]);
 
+  /* Ссылка на поле телефона: нужна, чтобы вернуть каретку после автоформатирования.
+     Объявлена до раннего выхода ниже — иначе у закрытой модалки вызывалось бы на
+     один хук меньше, чем у открытой, и React падал бы с ошибкой «Rendered more
+     hooks than during the previous render», унося с собой всю форму. */
+  const phoneRef = useRef<HTMLInputElement | null>(null);
+
   if (!open) return null;
 
   const set = <K extends keyof BookingForm>(key: K, value: BookingForm[K]) => {
@@ -1084,8 +1133,10 @@ function BookingSheet({
       if (!form.name.trim()) next.name = "Как к вам обращаться?";
       if (!form.consent) next.consent = "Без согласия на обработку данных мы не можем принять заявку";
       const digits = form.phone.replace(/\D/g, "");
-      if (digits.length < 10) next.phone = "Введите номер телефона полностью";
-      else if (digits.length > 15) next.phone = "Слишком много цифр — проверьте номер";
+      /* Порог тот же, что и в подсказке под полем: форматирование доводит номер
+         до одиннадцати цифр само, поэтому «неполный» означает ровно одно. */
+      if (digits.length < MAX_PHONE_DIGITS) next.phone = "Введите номер полностью";
+      else if (digits.length > MAX_PHONE_DIGITS) next.phone = "Слишком много цифр — проверьте номер";
     }
     if (target >= 3) {
       if (!form.date) next.date = "Выберите дату";
@@ -1180,6 +1231,39 @@ function BookingSheet({
     if (target instanceof HTMLTextAreaElement || target instanceof HTMLButtonElement) return;
     e.preventDefault();
     goNext();
+  };
+
+  const phoneDigits = form.phone.replace(/\D/g, "").length;
+
+  /* Форматирование на лету сдвигает текст под курсором, поэтому после него
+     возвращаем каретку на прежнее место по счёту цифр: без этого при правке
+     середины номера курсор прыгал бы в конец строки. */
+  const onPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const caret = input.selectionStart ?? input.value.length;
+    const digitsBefore = input.value.slice(0, caret).replace(/\D/g, "").length;
+    const next = formatPhone(input.value);
+    set("phone", next);
+
+    const el = phoneRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      if (digitsBefore === 0) {
+        el.setSelectionRange(0, 0);
+        return;
+      }
+      let seen = 0;
+      for (let i = 0; i < next.length; i += 1) {
+        if (/\d/.test(next[i])) {
+          seen += 1;
+          if (seen === Math.min(digitsBefore, MAX_PHONE_DIGITS)) {
+            el.setSelectionRange(i + 1, i + 1);
+            return;
+          }
+        }
+      }
+      el.setSelectionRange(next.length, next.length);
+    });
   };
 
   const goNext = () => {
@@ -1477,26 +1561,36 @@ function BookingSheet({
                     <label className={`field ${errors.phone ? "field--invalid" : ""}`}>
                       <span>Телефон</span>
                       <input
+                        ref={phoneRef}
                         value={form.phone}
-                        /* Поле принимало буквы, эмодзи и 20 цифр подряд — номер
-                           всё равно уходил бы в заявку нечитаемым. Оставляем
-                           только то, из чего состоит телефон. */
-                        onChange={(e) => set("phone", e.target.value.replace(/[^\d+()\-\s]/g, "").slice(0, 18))}
+                        /* Буквы и эмодзи в поле не попадают, а лишние цифры
+                           отсекаются сразу: номер форматируется во время ввода
+                           и не может стать длиннее настоящего телефона. */
+                        onChange={onPhoneChange}
                         onFocus={onFieldFocus}
-                        placeholder="+7 (___) ___-__-__"
+                        placeholder={PHONE_EXAMPLE}
                         type="tel"
-                        inputMode="tel"
+                        inputMode="numeric"
                         autoComplete="tel"
                         enterKeyHint="done"
+                        maxLength={16}
                         data-field="phone"
                         aria-invalid={errors.phone ? true : undefined}
-                        aria-describedby={errors.phone ? "err-phone" : undefined}
+                        aria-describedby={errors.phone ? "err-phone" : "phone-hint"}
                       />
                       {errors.phone ? (
                         <span className="field-error" id="err-phone" role="alert">
                           {errors.phone}
                         </span>
-                      ) : null}
+                      ) : (
+                        /* Счётчик цифр виден прямо во время набора — понятно,
+                           сколько ещё осталось, без ожидания отправки. */
+                        <span className="field-hint" id="phone-hint" aria-live="polite">
+                          {phoneDigits >= MAX_PHONE_DIGITS
+                            ? "Номер введён полностью"
+                            : `Цифр: ${phoneDigits} из ${MAX_PHONE_DIGITS}`}
+                        </span>
+                      )}
                     </label>
                   </div>
                   <div className="contact-row" role="group" aria-label="Способ связи">
